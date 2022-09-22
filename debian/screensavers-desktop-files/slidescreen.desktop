@@ -1,0 +1,6 @@
+
+[Desktop Entry]
+Name=Slide Screen
+Exec=/usr/libexec/xscreensaver/slidescreen -root
+TryExec=/usr/libexec/xscreensaver/slidescreen
+Comment=A variant on a "fifteen puzzle", operating on the screen or an image. It divides the image into a grid and randomly shuffles the squares. https://en.wikipedia.org/wiki/Fifteen_puzzle Written by Jamie Zawinski.

@@ -1,0 +1,27 @@
+06-upstream-marbling-fix-signedness-for-x86_64-and-aarch64-on-ve.patch
+08_upstream_man_page_typo.patch
+10_upstream_skip_retired_hacks.patch
+12_upstream_man_beats_speereev_backslash.patch
+20_hacks_man_section.patch
+20_skip_install-pam.patch
+
+# These two go together
+# ... but don't apply to 5.40 so: skipped.
+#30_hacks_xanalogtv.patch
+#31_utils_images_logo-50-bad-xpm.patch
+
+# All these modify XScreenSaver.ad.in
+50_debian_branding.patch
+52_standard_time_format.patch
+53_default_newLoginCommand.patch
+54_no_dnalogo_hack.patch
+55_add_unicode_hack.patch
+
+57_grabDesktopImages_default_off.patch
+75_Makefile_in-ignore-alien-platforms.patch
+81_hacks_deterministic_file_order.patch
+90_remove_Easter_egg_about_version.patch
+92_hacks_images_distclean.patch
+
+# For benchmarking of cpu usage
+94_cpu_usage_verbose.patch
