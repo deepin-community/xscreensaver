@@ -12,10 +12,16 @@
 # Includes hardening compile options
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
+# Add cpu time statistics to verbose output
+export DEB_CFLAGS_MAINT_APPEND = -DLOG_CPU_TIME
+
 %:
 	dh $@ --without autoreconf
 
 override_dh_auto_configure:
+	# fix up Catalan translation file
+	[ -f ca.po.orig ] || cp -p po/ca.po ca.po.orig
+	iconv -f ISO8859-1 -t UTF-8 -o po/ca.po ca.po.orig
 	# Generate POT file for translators
 	cd po && intltool-update --verbose -p && cd ..
 
@@ -52,12 +58,15 @@ override_dh_auto_clean:
 	  mv driver/XScreenSaver_ad.h.upstream driver/XScreenSaver_ad.h
 	[ ! -f driver/XScreenSaver_Xm_ad.h.upstream ] || \
 	  mv driver/XScreenSaver_Xm_ad.h.upstream driver/XScreenSaver_Xm_ad.h
+	# restore original non-UTF8 Catalan translation file
+	[ ! -f ca.po.orig ] || mv ca.po.orig po/ca.po
 	dh_auto_clean
 
 override_dh_auto_install:
 	ln -sf README NEWS
 	dh_auto_install -- install_prefix=$(CURDIR)/debian/tmp \
-		GTK_DATADIR=/usr/share KDEDIR=/usr
+		GTK_DATADIR=/usr/share KDEDIR=/usr \
+		UPDATE_ICON_CACHE=:
 	# Install .desktop files used by gnome-screensaver etc
 	mkdir -p debian/tmp/usr/share/applications/screensavers
 	cp debian/screensavers-desktop-files/*.desktop \
@@ -89,6 +98,12 @@ override_dh_auto_install:
 		debian/xscreensaver-gl/etc/X11/app-defaults/XScreenSaver-gl
 	install -D -m 644 driver/XScreenSaver.ad-nogl \
 		debian/xscreensaver-data/etc/X11/app-defaults/XScreenSaver-nogl
+
+override_dh_fixperms-arch:
+	dh_fixperms
+	chmod 4755 debian/xscreensaver/usr/libexec/xscreensaver/xscreensaver-auth
+	chmod -x debian/xscreensaver/usr/share/xscreensaver/xscreensaver.desktop
+	chmod -x debian/xscreensaver/usr/share/applications/xscreensaver-settings.desktop
 
 override_dh_installsystemduser:
 	dh_installsystemduser --no-enable

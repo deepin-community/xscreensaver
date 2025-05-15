@@ -1,4 +1,4 @@
-/* xscreensaver, Copyright © 1991-2021 Jamie Zawinski <jwz@jwz.org>
+/* xscreensaver, Copyright © 1991-2023 Jamie Zawinski <jwz@jwz.org>
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that
@@ -223,6 +223,10 @@
 
 #ifdef HAVE_SYS_WAIT_H
 # include <sys/wait.h>		/* for waitpid() and associated macros */
+#endif
+
+#ifndef HAVE_XINPUT
+# error The XInput2 extension is required
 #endif
 
 #include <X11/Xlib.h>
@@ -676,7 +680,9 @@ print_banner(void)
                  /* Hey jerks, the only time someone will see this particular
                     message is if they are running xscreensaver with '-log' in
                     order to send me a bug report, and they had damned well
-                    better try the latest release before they do that. */
+                    better try the latest release before they do that --
+                    even if your perma-out-of-date distro does not make that
+                    easily available to them. */
                  "\t   ###################################################\n"
                  "\t   ###                                             ###\n"
                  "\t   ###  THIS VERSION IS VERY OLD! PLEASE UPGRADE!  ###\n"
@@ -778,6 +784,8 @@ static void init_line_handler (int lineno,
                                const char *key, const char *val,
                                void *closure)
 {
+  if (*key == '*' || *key == '.') key++;	/* Xrm wildcards */
+
   if      (!strcmp (key, "verbose")) verbose_p = !strcasecmp (val, "true");
   else if (!strcmp (key, "splash"))  splash_p  = !strcasecmp (val, "true");
   else if (!strcmp (key, "lock"))    lock_p    = !strcasecmp (val, "true");
@@ -978,7 +986,9 @@ ensure_no_screensaver_running (Display *dpy)
                    && type != None
                    && (!strcmp ((char *) version, "gnome-screensaver") ||
                        !strcmp ((char *) version, "mate-screensaver") ||
-                       !strcmp ((char *) version, "cinnamon-screensaver")))
+                       !strcmp ((char *) version, "cinnamon-screensaver") ||
+                       !strcmp ((char *) version, "xfce4-screensaver") ||
+                       !strcmp ((char *) version, "light-locker")))
             {
               fprintf (stderr,
                        "%s: \"%s\" is already running on display %s"
@@ -1226,7 +1236,7 @@ ungrab_mouse (Display *dpy)
 /* Some remote desktop clients (e.g., "rdesktop") hold the keyboard GRABBED the
    whole time they have focus!  This is idiotic because the whole point of
    grabbing is to get events when you do *not* have focus, so grabbing only
-   when* you have focus is redundant.  Anyway, that prevents us from getting a
+   *when* you have focus is redundant.  Anyway, that prevents us from getting a
    keyboard grab.  It turns out that for some of these apps, de-focusing them
    forces them to release their grab.
 
@@ -1357,14 +1367,14 @@ grab_keyboard_and_mouse (Screen *screen)
      because I'm not completely convinced it is a safe thing to do.
    */
 
-  if (kstatus != GrabSuccess)	/* Do not blank without a kbd grab.   */
+  if (kstatus != GrabSuccess)	/* Do not blank without a kbd grab. */
     {
       /* If we didn't get both grabs, release the one we did get. */
       ungrab_keyboard_and_mouse (dpy);
       return False;
     }
 
-  return True;			/* Grab is good, go ahead and blank.  */
+  return True;			/* Grab is good, go ahead and blank. */
 }
 
 
@@ -1754,9 +1764,9 @@ main_loop (Display *dpy)
                      linking with additional libraries, doing additional X
                      protocol, and also some finicky error handling, since
                      the DPMS extension is a pain in the ass.  So instead,
-                     I made xscreensaver-command do that instead.  This
-                     somewhat breaks the abstraction of ClientMessage
-                     handling, but it's more robust. */
+                     I made xscreensaver-command:reset_dpms_timer() do that
+                     instead.  This somewhat breaks the abstraction of
+                     ClientMessage handling, but it's more robust. */
                 }
               else if (msg == XA_LOCK)
                 {
@@ -1925,6 +1935,9 @@ main_loop (Display *dpy)
           case XI_RawKeyRelease:
           case XI_RawButtonPress:
           case XI_RawButtonRelease:
+          case XI_RawTouchBegin:
+          case XI_RawTouchEnd:
+          case XI_RawTouchUpdate:
             if (current_state != AUTH &&  /* logged by xscreensaver-auth */
                 (verbose_p > 1 ||
                  (verbose_p && now - active_at > 1)))
@@ -2355,6 +2368,15 @@ main (int argc, char **argv)
         {
           logfile = argv[++i];
           if (!logfile) goto HELP;
+          if (! verbose_p)  /* might already be -vv */
+            verbose_p = cmdline_verbose_p = cmdline_verbose_val = True;
+        }
+      else if (!strcmp (argv[i], "-ver") ||
+               !strcmp (argv[i], "-vers") ||
+               !strcmp (argv[i], "-version"))
+        {
+          fprintf (stderr, "%s\n", screensaver_id+4);
+          exit (1);
         }
       else if (!strcmp (argv[i], "-d") ||
                !strcmp (argv[i], "-dpy") ||
@@ -2381,6 +2403,7 @@ main (int argc, char **argv)
                    "\t\t--verbose\n"
                    "\t\t--no-splash\n"
                    "\t\t--log logfile\n"
+                   "\t\t--version\n"
                    "\n"
                    "\tRun 'xscreensaver-settings' to configure.\n"
                    "\n");

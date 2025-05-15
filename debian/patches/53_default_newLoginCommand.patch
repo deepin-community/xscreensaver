@@ -1,10 +1,12 @@
-#
-# This just sets a default. The desktop environment starting
-# xscreensaver should also tell it which command to use, see e.g.
-# https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=778470#25
-# We also offer the intermediate band-aid solution of
-# /usr/share/xscreensaver/xscreensaver-wrapper.sh
-#
+Description: Change default newLoginCommand
+ This just sets a default. The desktop environment starting
+ xscreensaver should also tell it which command to use, see e.g.
+ https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=778470#25
+ We also offer the intermediate band-aid solution of
+ /usr/share/xscreensaver/xscreensaver-wrapper.sh
+Forwarded: not-needed
+Author: Tormod Volden <debian.tormod@gmail.com>
+
 Index: xscreensaver-git/driver/XScreenSaver.ad.in
 ===================================================================
 --- xscreensaver-git.orig/driver/XScreenSaver.ad.in

@@ -1,4 +1,4 @@
-/* xscreensaver, Copyright © 1991-2021 Jamie Zawinski <jwz@jwz.org>
+/* xscreensaver, Copyright © 1991-2023 Jamie Zawinski <jwz@jwz.org>
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that
@@ -37,20 +37,21 @@ Window
 find_screensaver_window (Display *dpy, char **version)
 {
   int nscreens = ScreenCount (dpy);
-  int i, screen;
+  int screen;
   Window ret = 0;
   XErrorHandler old_handler;
 
   XSync (dpy, False);
   old_handler = XSetErrorHandler (error_handler);
 
+  if (version) *version = 0;
+
   for (screen = 0; screen < nscreens; screen++)
     {
       Window root = RootWindow (dpy, screen);
       Window root2, parent, *kids;
       unsigned int nkids;
-
-      if (version) *version = 0;
+      int i = 0;
 
       if (! XQueryTree (dpy, root, &root2, &parent, &kids, &nkids))
         abort ();
@@ -94,6 +95,7 @@ find_screensaver_window (Display *dpy, char **version)
           if (ret) break;
         }
       if (kids) XFree (kids);
+      if (ret) break;
     }
 
   XSetErrorHandler (old_handler);
@@ -111,8 +113,15 @@ clientmessage_response (Display *dpy, XEvent *xev, Bool ok, const char *msg)
     {
       Atom cmd = xev->xclient.data.l[0];
       char *name = XGetAtomName (dpy, cmd);
-      fprintf (stderr, "%s: ClientMessage %s: %s\n", blurb(), 
-               (name ? name : "???"), msg);
+      pid_t caller = (cmd == XA_DEACTIVATE
+                      ? (pid_t) xev->xclient.data.l[1]
+                      : 0);
+      if (caller)
+        fprintf (stderr, "%s: ClientMessage %s: %s (from pid %lu)\n", blurb(), 
+                 (name ? name : "???"), msg, (unsigned long) caller);
+      else
+        fprintf (stderr, "%s: ClientMessage %s: %s\n", blurb(), 
+                 (name ? name : "???"), msg);
     }
 
   L = strlen (msg);

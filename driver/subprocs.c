@@ -1,5 +1,5 @@
 /* subprocs.c --- choosing, spawning, and killing screenhacks.
- * xscreensaver, Copyright © 1991-2021 Jamie Zawinski <jwz@jwz.org>
+ * xscreensaver, Copyright © 1991-2024 Jamie Zawinski <jwz@jwz.org>
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that
@@ -53,6 +53,7 @@
 #include "yarandom.h"
 #include "visual.h"		/* for id_to_visual() */
 #include "atoms.h"
+#include "screenshot.h"
 
 
 enum job_status {
@@ -64,6 +65,8 @@ enum job_status {
 		   handler.  Shortly after going into this state, the list
 		   element will be removed. */
 };
+
+#define EXEC_FAILED_EXIT_STATUS -33
 
 struct screenhack_job {
   char *name;
@@ -461,6 +464,16 @@ xt_sigterm_handler (XtPointer data, XtSignalId *id)
         fprintf (stderr, "%s: %s: unblanking\n", blurb(), 
                  signal_name (sigterm_received));
 
+       /* We are in the process of shutting down and are about to exit,
+          so don't accidentally re-launch hacks. */
+      si->terminating_p = True;
+
+      if (si->watchdog_id)
+        {
+          XtRemoveTimeOut (si->watchdog_id);
+          si->watchdog_id = 0;
+        }
+
       /* Kill before unblanking, to stop drawing as soon as possible. */
       for (i = 0; i < si->nscreens; i++)
         {
@@ -570,7 +583,11 @@ describe_dead_child (saver_info *si, pid_t kid, int wait_status,
       /* Treat exit code as a signed 8-bit quantity. */
       if (exit_status & 0x80) exit_status |= ~0xFF;
 
-      sprintf (msg, _("crashed with status %d"), exit_status);
+      if (exit_status == EXEC_FAILED_EXIT_STATUS)
+        strcpy (msg, _("is not installed"));
+      else
+        sprintf (msg, _("crashed with status %d"), exit_status);
+
       if (p->verbose_p)
         fprintf (stderr,
                  "%s: %d: child pid %lu (%s) exited abnormally"
@@ -767,7 +784,7 @@ fork_and_exec (saver_screen_info *ssi, const char *command)
 
       exec_command (p->shell, command, p->nice_inferior);
       /* If that returned, we were unable to exec the subprocess. */
-      exit (1);  /* exits child fork */
+      exit (EXEC_FAILED_EXIT_STATUS);  /* exits child fork */
       break;
 
     default:	/* parent */
@@ -951,6 +968,11 @@ spawn_screenhack (saver_screen_info *ssi)
 	    goto AGAIN;
 	}
 
+      /* Install screenshot property on window. Must be after
+         select_visual_of_hack() which might replace the window. */
+      if (ssi->screenshot)
+        screenshot_save (si->dpy, ssi->screensaver_window, ssi->screenshot);
+
       if (getuid() == (uid_t) 0 || geteuid() == (uid_t) 0)
         /* Prior to XScreenSaver 6, if running as root, we would change the
            effective uid to the user "nobody" or "daemon" or "noaccess",
@@ -960,6 +982,27 @@ spawn_screenhack (saver_screen_info *ssi)
           fprintf (stderr, "%s: %d: running as root: not launching hacks.\n",
                    blurb(), ssi->number);
           screenhack_obituary (ssi, "", "XScreenSaver: Don't log in as root.");
+          goto DONE;
+        }
+
+      if (! si->best_gl_visuals ||
+          ! si->best_gl_visuals[ssi->real_screen_number])
+        {
+          /* Lots of things malfunction in mysterious ways if only *part* of
+             the XScreenSaver application is installed.  That some distros
+             still insist on dividing XScreenSaver into multiple
+             bafflingly-named sub-packages that can be omitted willy nilly
+             causes repeated, predicted, time-wasting and extremely irritating
+             problems for everybody, while solving no problems whatsoever.
+
+             Here's your car, but let's make it trivially easy for everyone to
+             accidentally omit the seat belts and distributor cap, because
+             some weirdo once wanted that in 2002.
+
+             Install all of XScreenSaver or none.
+           */
+          screenhack_obituary (ssi, "",
+            "No GL visuals: the xscreensaver-gl* packages are required.");
           goto DONE;
         }
 
@@ -1186,17 +1229,19 @@ get_best_gl_visual (saver_info *si, Screen *screen)
             sprintf (buf, "%s: running %s", blurb(), av[0]);
             perror (buf);
           }
-        exit (1);                               /* exits fork */
+        exit (EXEC_FAILED_EXIT_STATUS);		/* exits fork */
         break;
       }
     default:
       {
         int result = 0;
         int wait_status = 0;
+        int exit_status = EXEC_FAILED_EXIT_STATUS;
         pid_t pid = -1;
         FILE *f;
         unsigned long v = 0;
         char c;
+        int i = 0;
 
         make_job (forked, 0, av[0]);  /* Bookkeeping for SIGCHLD */
 
@@ -1208,8 +1253,13 @@ get_best_gl_visual (saver_info *si, Screen *screen)
         close (out);  /* don't need this one */
 
         *buf = 0;
-        if (! fgets (buf, sizeof(buf)-1, f))
-          *buf = 0;
+        do {
+          errno = 0;
+          if (! fgets (buf, sizeof(buf)-1, f))
+            *buf = 0;
+        } while (errno == EINTR &&	/* fgets might fail due to SIGCHLD. */
+                 i++ < 1000);		/* And just in case. */
+
         fclose (f);
 
         if (! si->prefs.verbose_p)
@@ -1223,6 +1273,16 @@ get_best_gl_visual (saver_info *si, Screen *screen)
         if (si->prefs.debug_p)
           fprintf (stderr, "%s: waitpid(%ld) => %ld\n", blurb(),
                    (long) forked, (long) pid);
+
+        exit_status = WEXITSTATUS (wait_status);
+        /* Treat exit code as a signed 8-bit quantity. */
+        if (exit_status & 0x80) exit_status |= ~0xFF;
+
+        if (exit_status == EXEC_FAILED_EXIT_STATUS)
+          {
+            fprintf (stderr, "%s: %s is not installed\n", blurb(), av[0]);
+            return 0;
+          }
 
         if (1 == sscanf (buf, "0x%lx %c", &v, &c))
           result = (int) v;

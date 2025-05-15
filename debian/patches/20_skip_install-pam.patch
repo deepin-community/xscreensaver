@@ -1,11 +1,13 @@
-#
-# We use dh_installpam so we don't need to run this target
-#
+Description: Skip install-pam makefile target
+ We use dh_installpam so we don't need to run this target.
+Forwarded: not-needed
+Author: Tormod Volden <debian.tormod@gmail.com>
+
 Index: xscreensaver-git/driver/Makefile.in
 ===================================================================
 --- xscreensaver-git.orig/driver/Makefile.in
 +++ xscreensaver-git/driver/Makefile.in
-@@ -249,7 +249,7 @@ tests:   $(TEST_EXES)
+@@ -253,7 +253,7 @@ tests::   $(TEST_EXES)
  ##############################################################################
  
  install:   install-program   install-ad   install-man   install-xml    \

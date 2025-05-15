@@ -1,11 +1,14 @@
-#
-# For reproducible builds. Bug #819595
-#
+Description: Allow reproducible builds
+Forwarded: not-needed
+Origin: vendor, https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=819595#5
+Bug-Debian: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=819595
+Author: Sascha Steinbiss <sascha@steinbiss.name>
+
 Index: xscreensaver-git/hacks/Makefile.in
 ===================================================================
 --- xscreensaver-git.orig/hacks/Makefile.in
 +++ xscreensaver-git/hacks/Makefile.in
-@@ -852,8 +852,8 @@ cwaves:		cwaves.o	$(HACK_OBJS) $(COL)
+@@ -856,8 +856,8 @@ cwaves:		cwaves.o	$(HACK_OBJS) $(COL)
  
  m6502.h:
  	@echo "building m6502.h from $(srcdir)/images/m6502/*.asm"; \

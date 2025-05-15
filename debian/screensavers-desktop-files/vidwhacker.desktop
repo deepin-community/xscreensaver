@@ -1,6 +1,6 @@
 
 [Desktop Entry]
 Name=Vid Whacker
-Exec=/usr/libexec/xscreensaver/vidwhacker -root
+Exec=/usr/libexec/xscreensaver/vidwhacker --root
 TryExec=/usr/libexec/xscreensaver/vidwhacker
-Comment=Displays a distorted frame video. This is a shell script that grabs a frame of video from the system's video input, and then uses some PBM filters (chosen at random) to manipulate and recombine the video frame in various ways (edge detection, subtracting the image from a rotated version of itself, etc.) Then it displays that image for a few seconds, and does it again. This works really well if you just feed broadcast television into it. Written by Jamie Zawinski.
+Comment=Distorts an image using a random series of filters: edge detection, subtracting the image from a rotated version of itself, etc. Written by Jamie Zawinski.

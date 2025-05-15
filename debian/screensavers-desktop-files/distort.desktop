@@ -1,6 +1,6 @@
 
 [Desktop Entry]
 Name=Distort
-Exec=/usr/libexec/xscreensaver/distort -root
+Exec=/usr/libexec/xscreensaver/distort --root
 TryExec=/usr/libexec/xscreensaver/distort
-Comment=Wandering lenses distort the screen image in various ways. Written by Jonas Munsin.
+Comment=Wandering lenses distort an image in various ways. Written by Jonas Munsin.

@@ -1,6 +1,6 @@
 
 [Desktop Entry]
 Name=Grav
-Exec=/usr/libexec/xscreensaver/grav -root
+Exec=/usr/libexec/xscreensaver/grav --root
 TryExec=/usr/libexec/xscreensaver/grav
-Comment=An orbital simulation. With trails enabled, it looks kind of like a cloud-chamber photograph. Written by Greg Bowering.
+Comment=An orbital simulation, or perhaps a cloud chamber. Written by Greg Bowering.
