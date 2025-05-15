@@ -127,7 +127,7 @@
 
 /* Use a small point size to keep it nice and grainy. */
 #define TITLE_FONT \
- "OCR A Std 10, Lucida Console 10, Monaco 10, Courier 10, monospace 10"
+ "OCR A 10, OCR A Std 10, Lucida Console 10, Monaco 10, Courier 10, monospace 10"
 
 #define DEFAULTS  "*delay:           20000                \n" \
 		  "*wireframe:       False                \n" \
@@ -508,9 +508,7 @@ image_loaded_cb (const char *filename, XRectangle *geom,
       if (s) *s = 0;
     }
 
-# if !(__APPLE__ && TARGET_IPHONE_SIMULATOR || !defined(__OPTIMIZE__))
   if (debug_p)
-# endif
     fprintf (stderr, "%s: loaded %lu \"%s\" %dx%d\n",
              progname, img->id, (img->title ? img->title : "(null)"),
              ow, oh);

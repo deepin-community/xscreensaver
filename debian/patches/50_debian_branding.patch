@@ -1,16 +1,13 @@
-#
-# "Branding", show Planet Debian posts instead of Wikipedia pages
-#
+Description: Debian branding
+ Show Planet Debian posts instead of Wikipedia pages
+Forwarded: not-needed
+Author: Josselin Mouette <joss@debian.org>
+
 Index: xscreensaver-git/driver/XScreenSaver.ad.in
 ===================================================================
 --- xscreensaver-git.orig/driver/XScreenSaver.ad.in
 +++ xscreensaver-git/driver/XScreenSaver.ad.in
-@@ -58,11 +58,11 @@
- *ignoreUninstalledPrograms: False
- *authWarningSlack:	20
- 
--*textMode:		file
-+*textMode:		url
+@@ -62,7 +62,7 @@
  *textLiteral:		XScreenSaver
  *textFile:		@DEFAULT_TEXT_FILE@
  *textProgram:		fortune

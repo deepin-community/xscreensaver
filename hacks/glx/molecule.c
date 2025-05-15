@@ -1,4 +1,4 @@
-/* molecule, Copyright (c) 2001-2016 Jamie Zawinski <jwz@jwz.org>
+/* molecule, Copyright © 2001-2023 Jamie Zawinskin <jwz@jwz.org>
  * Draws molecules, based on coordinates from PDB (Protein Data Base) files.
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
@@ -110,7 +110,7 @@ static const atom_data all_atom_data[] = {
   { "H",    1.17,  0.40, "#FFFFFF", "#000000", { 0, }},
   { "C",    1.75,  0.58, "#999999", "#FFFFFF", { 0, }},
   { "CA",   1.80,  0.60, "#0000FF", "#ADD8E6", { 0, }},
-  { "N",    1.55,  0.52, "#A2B5CD", "#EE99FF", { 0, }},
+  { "N",    1.55,  0.52, "#428DC3", "#EE99FF", { 0, }},
   { "O",    1.40,  0.47, "#FF0000", "#FFB6C1", { 0, }},
   { "P",    1.28,  0.43, "#9370DB", "#DB7093", { 0, }},
   { "S",    1.80,  0.60, "#8B8B00", "#FFFF00", { 0, }},
@@ -1235,15 +1235,15 @@ gl_init (ModeInfo *mi)
 static void
 startup_blurb (ModeInfo *mi)
 {
+#ifndef HAVE_ANDROID   /* Doesn't work -- causes whole scene to be black */
   molecule_configuration *mc = &mcs[MI_SCREEN(mi)];
   const char *s = "Constructing molecules...";
-#ifndef HAVE_ANDROID   /* Doesn't work -- causes whole scene to be black */
   print_texture_label (mi->dpy, mc->title_font,
                        mi->xgwa.width, mi->xgwa.height,
                        0, s);
-#endif
   glFinish();
   glXSwapBuffers(MI_DISPLAY(mi), MI_WINDOW(mi));
+#endif
 }
 
 ENTRYPOINT Bool
@@ -1444,7 +1444,7 @@ draw_labels (ModeInfo *mi)
 
         s = 1.0 / h;			/* Scale to unit */
         s *= mc->overall_scale;		/* Scale to size of atom */
-        s *= 0.8;			/* Shrink a bit */
+        s *= 0.5;			/* Shrink a bit */
         glScalef (s, s, 1);
         glTranslatef (-w/2, -h/2, 0);
 #ifndef HAVE_ANDROID   /* Doesn't work -- causes whole scene to be black */

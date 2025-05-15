@@ -1,4 +1,4 @@
-/* handsy, Copyright (c) 2018 Jamie Zawinski <jwz@jwz.org>
+/* handsy, Copyright © 2018-2023 Jamie Zawinski <jwz@jwz.org>
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that

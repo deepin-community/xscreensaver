@@ -1,5 +1,5 @@
 /* dialog.c --- the password dialog and splash screen.
- * xscreensaver, Copyright © 1993-2021 Jamie Zawinski <jwz@jwz.org>
+ * xscreensaver, Copyright © 1993-2023 Jamie Zawinski <jwz@jwz.org>
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that
@@ -46,6 +46,10 @@
 #endif /* HAVE_UNAME */
 #include <ctype.h>
 #include <pwd.h>
+
+#ifndef HAVE_XINPUT
+# error The XInput2 extension is required
+#endif
 
 #include <X11/Xproto.h>		/* for CARD32 */
 #include <X11/Xlib.h>
@@ -129,7 +133,7 @@ typedef struct {
 typedef struct {
   char *text;
   XftFont *font;
-  XftColor fg;
+  XftColor fg, fg2;
   Pixel bg;
   enum { LABEL, BUTTON, TEXT, TEXT_RO } type;
   line_align align;
@@ -150,7 +154,7 @@ struct window_state {
   Window window;
   Colormap cmap;
 
-  Bool splash_p;
+  int splash_p;
   auth_state auth_state;
   int xi_opcode;
   int xkb_opcode;
@@ -181,6 +185,7 @@ struct window_state {
   XtIntervalId timer;
 
   XtIntervalId cursor_timer;		/* Blink the I-beam */
+  XtIntervalId bs_timer;		/* Auto-repeat Backspace */
   int i_beam;
 
   double start_time, end_time;
@@ -214,6 +219,7 @@ struct window_state {
   XftColor xft_foreground;
   XftColor xft_text_foreground;
   XftColor xft_button_foreground;
+  XftColor xft_button_disabled;
   XftColor xft_error_foreground;
   Pixel passwd_background;
   Pixel thermo_foreground;
@@ -489,10 +495,13 @@ draw_dialog_line (window_state *ws, Drawable d, dialog_line *line,
 
   if (line->type == BUTTON &&
       line->button &&
-      (line->button->down_p || line->button->disabled_p))
+      line->button->down_p)
     xoff2 = yoff2 = MIN (ws->shadow_width, line->font->ascent/2);
 
-  XftDrawStringUtf8_multi (ws->xftdraw, &line->fg, line->font,
+  XftDrawStringUtf8_multi (ws->xftdraw, 
+                           (line->button && line->button->disabled_p
+                            ? &line->fg2 : &line->fg),
+                           line->font,
                            left + xoff2,
                            y + ypad + yoff2 + line->font->ascent,
                            (FcChar8 *) text, strlen (text),
@@ -672,6 +681,31 @@ get_xft_color (window_state *ws, XftColor *ret,
                      s, ret);
 }
 
+static void
+dim_xft_color (window_state *ws, const XftColor *in, Pixel bg, XftColor *out)
+{
+  double dim = 0.6;
+# if 0  /* Turns out Xft alpha doesn't work. How very. */
+  XRenderColor rc = in->color;
+  rc.alpha *= dim;
+# else
+  XRenderColor rc;
+  XColor xc;
+  xc.pixel = bg;
+  XQueryColor (ws->dpy, DefaultColormapOfScreen (ws->screen), &xc);
+  rc.red   = dim * in->color.red   + (1-dim) * xc.red;
+  rc.green = dim * in->color.green + (1-dim) * xc.green;
+  rc.blue  = dim * in->color.blue  + (1-dim) * xc.blue;
+  rc.alpha = in->color.alpha;
+# endif
+  if (! XftColorAllocValue (ws->dpy,
+                            DefaultVisualOfScreen(ws->screen),
+                            DefaultColormapOfScreen (ws->screen),
+                            &rc, out))
+    abort();
+}
+
+
 static int
 get_int (window_state *ws, const char *name, const char *rclass)
 {
@@ -692,10 +726,12 @@ choose_asterisk (window_state *ws)
   int i, L;
   for (i = 0; i < countof (candidates) - 1; i++)
     {
+# ifdef HAVE_XFT
       if (XftCharExists (ws->dpy, ws->label_font, (FcChar32) *uc))
         break;
       if (debug_p)
         fprintf (stderr, "%s: char U+%0lX does not exist\n", blurb(), *uc);
+# endif
       uc++;
     }
 
@@ -955,7 +991,7 @@ create_window (window_state *ws, int w, int h)
 /* Loads resources and creates and returns the global window state.
  */
 static window_state *
-window_init (Widget root_widget, Bool splash_p)
+window_init (Widget root_widget, int splash_p)
 {
   Display *dpy = XtDisplay (root_widget);
   window_state *ws;
@@ -1042,6 +1078,8 @@ window_init (Widget root_widget, Bool splash_p)
                  "error.foreground", "Error.Foreground");
   get_xft_color (ws, &ws->xft_button_foreground,
                  "button.foreground", "Button.Foreground");
+  dim_xft_color (ws, &ws->xft_button_foreground, ws->background,
+                 &ws->xft_button_disabled);
 
   ws->shadow_top    = get_color (ws, "topShadowColor", "Foreground");
   ws->shadow_bottom = get_color (ws, "bottomShadowColor", "Background");
@@ -1328,27 +1366,111 @@ window_draw (window_state *ws)
   lines[i].text  = ws->heading_label;			/* XScreenSaver */
   lines[i].font  = ws->heading_font;
   lines[i].fg    = ws->xft_foreground;
+  lines[i].fg2   = lines[i].fg;
   lines[i].bg    = ws->background;
   lines[i].type  = LABEL;
   lines[i].align = CENTER;
   i++;
 
+  /* If you are in here because you're planning on disabling this notice
+     before redistributing my software, please don't.
+
+     I sincerely request that you do one of the following:
+
+         1: leave this code intact and this warning in place, -OR-
+
+         2: Remove xscreensaver from your distribution.
+
+     I would seriously prefer that you not distribute my software at all
+     than that you distribute one version and then never update it for
+     years.
+
+     I am *constantly* getting email from users reporting bugs that have
+     been fixed for literally years who have no idea that the software
+     they are running is years out of date.  Yes, it would be great if we
+     lived in the ideal world where people checked that they were running
+     the latest release before they report a bug, but we don't.  To most
+     people, "running the latest release" is synonymous with "running the
+     latest release that my distro packages for me."
+
+     When they even bother to tell me what version they're running, I
+     say, "That version is three years old!", and they say "But this is
+     the latest version my distro ships".  Then I say, "your distro
+     sucks", and they say "but I don't know how to compile from source,
+     herp derp I eat paste", and *everybody* goes away unhappy.
+
+     It wastes an enormous amount of my time, but worse than that, it
+     does a grave disservice to the users, who are stuck experiencing
+     bugs that are already fixed!  These users think they are running the
+     latest release, and they are not.  They would like to be running the
+     actual latest release, but they don't know how, because their distro
+     makes that very difficult for them.  It's terrible for everyone, and
+     kind of makes me regret ever having released this software in the
+     first place.
+
+     So seriously. I ask that if you're planning on disabling this
+     obsolescence warning, that you instead just remove xscreensaver from
+     your distro entirely.  Everybody will be happier that way.  Check
+     out gnome-screensaver instead, I understand it's really nice.
+
+     Of course, my license allows you to ignore me and do whatever the
+     fuck you want, but as the author, I hope you will have the common
+     courtesy of complying with my request.
+
+     Thank you!
+
+     jwz, 2014, 2016, 2018, 2021.
+
+     PS: In particular, since Debian refuses to upgrade software on any
+     kind of rational timeline, I have asked that they stop shipping
+     xscreensaver at all.  They have refused.  Instead of upgrading the
+     software, they simply patched out this warning.
+
+     If you want to witness the sad state of the open source peanut
+     gallery, look no farther than the comments on my blog:
+     http://jwz.org/b/yiYo
+
+     Many of these people fall back on their go-to argument of, "If it is
+     legal, it must be right."  If you believe in that rhetorical device
+     then you are a terrible person, and possibly a sociopath.
+
+     There are also the armchair lawyers who say "Well, instead of
+     *asking* people to do the right thing out of common courtesy, you
+     should just change your license to prohibit them from acting
+     amorally."  Again, this is the answer of a sociopath, but that aside,
+     if you devote even a second's thought to this you will realize that
+     the end result of this would be for distros like Debian to just keep
+     shipping the last version with the old license and then never
+     upgrading it again -- which would be the worst possible outcome for
+     everyone involved, most especially the users.
+
+     Also, some have incorrectly characterized this as a "time bomb".
+     It is a software update notification, nothing more.  A "time bomb"
+     makes software stop working.  This merely alerts the user that the
+     security-critical software that they are running is dangerously out
+     of date.
+
+     If you have read all of the above, and still decide to intentionally
+     disrespect the wishes of the person who wrote all of this software for
+     you -- you are a terrible person.  Kindly go fuck yourself.
+  */
   if (time ((time_t *) 0) - XSCREENSAVER_RELEASED > 60*60*24*30*17)
     {
       lines[i].text  = _("Update available!\nThis version is very old.\n");
       lines[i].font  = ws->error_font;
       lines[i].fg    = ws->xft_error_foreground;
+      lines[i].fg2   = lines[i].fg;
       lines[i].bg    = ws->background;
       lines[i].type  = LABEL;
       lines[i].align = CENTER;
       i++;
     }
-  else if (strstr (ws->version, "a") ||
-      strstr (ws->version, "b"))
+  else if (strstr (ws->version, "a") || strstr (ws->version, "b"))
     {
       lines[i].text  = _("PRE-RELEASE VERSION");
       lines[i].font  = ws->error_font;
       lines[i].fg    = ws->xft_error_foreground;
+      lines[i].fg2   = lines[i].fg;
       lines[i].bg    = ws->background;
       lines[i].type  = LABEL;
       lines[i].align = CENTER;
@@ -1360,6 +1482,7 @@ window_draw (window_state *ws)
       lines[i].text  = ws->hostname_label;
       lines[i].font  = ws->hostname_font;
       lines[i].fg    = ws->xft_foreground;
+      lines[i].fg2   = lines[i].fg;
       lines[i].bg    = ws->background;
       lines[i].type  = LABEL;
       lines[i].align = CENTER;
@@ -1370,6 +1493,7 @@ window_draw (window_state *ws)
   lines[i].text  = "";                 \
   lines[i].font  = ws->body_font;      \
   lines[i].fg    = ws->xft_foreground; \
+  lines[i].fg2   = lines[i].fg;        \
   lines[i].bg    = ws->background;     \
   lines[i].type  = LABEL;              \
   lines[i].align = CENTER;             \
@@ -1383,6 +1507,7 @@ window_draw (window_state *ws)
         _("DEBUG MODE:\nAll keystrokes are being logged to stderr.\n");
       lines[i].font  = ws->error_font;
       lines[i].fg    = ws->xft_error_foreground;
+      lines[i].fg2   = lines[i].fg;
       lines[i].bg    = ws->background;
       lines[i].type  = LABEL;
       lines[i].align = CENTER;
@@ -1394,6 +1519,7 @@ window_draw (window_state *ws)
       lines[i].text  = ws->body_label;	    /* Copyright or error message */
       lines[i].font  = ws->body_font;
       lines[i].fg    = ws->xft_foreground;
+      lines[i].fg2   = lines[i].fg;
       lines[i].bg    = ws->background;
       lines[i].type  = LABEL;
       lines[i].align = CENTER;
@@ -1414,6 +1540,7 @@ window_draw (window_state *ws)
         lines[i].fg    = (ws->msgs[j].type == AUTH_MSGTYPE_ERROR
                           ? ws->xft_error_foreground
                           : ws->xft_foreground);
+        lines[i].fg2   = lines[i].fg;
         lines[i].bg    = ws->background;
         lines[i].type  = LABEL;
         lines[i].align = CENTER;
@@ -1429,6 +1556,7 @@ window_draw (window_state *ws)
             lines[i].text    = _("Username:");
             lines[i].font    = ws->label_font;
             lines[i].fg      = ws->xft_foreground;
+            lines[i].fg2     = lines[i].fg;
             lines[i].bg      = ws->background;
             lines[i].type    = LABEL;
             lines[i].align   = LEFT;
@@ -1438,6 +1566,7 @@ window_draw (window_state *ws)
             lines[i].text    = ws->user;		/* $USER */
             lines[i].font    = ws->label_font;
             lines[i].fg      = ws->xft_text_foreground;
+            lines[i].fg2     = lines[i].fg;
             lines[i].bg      = ws->passwd_background;
             lines[i].type    = TEXT_RO;
             lines[i].align   = RIGHT;
@@ -1447,6 +1576,7 @@ window_draw (window_state *ws)
         lines[i].text    = trim (ws->msgs[j].msg);	/* PAM prompt text */
         lines[i].font    = ws->label_font;
         lines[i].fg      = ws->xft_foreground;
+        lines[i].fg2     = lines[i].fg;
         lines[i].bg      = ws->background;
         lines[i].type    = LABEL;
         lines[i].align   = LEFT;
@@ -1462,6 +1592,7 @@ window_draw (window_state *ws)
                               : "");
         lines[i].font    = ws->label_font;
         lines[i].fg      = ws->xft_text_foreground;
+        lines[i].fg2     = lines[i].fg;
         lines[i].bg      = ws->passwd_background;
         lines[i].type    = TEXT;
         lines[i].align   = RIGHT;
@@ -1474,6 +1605,7 @@ window_draw (window_state *ws)
             lines[i].text   = date_text;
             lines[i].font   = ws->date_font;
             lines[i].fg     = ws->xft_foreground;
+            lines[i].fg2    = lines[i].fg;
             lines[i].bg     = ws->background;
             lines[i].type   = LABEL;
             lines[i].align  = RIGHT;
@@ -1486,6 +1618,7 @@ window_draw (window_state *ws)
             lines[i].text   = ws->kbd_layout_label;
             lines[i].font   = ws->date_font;
             lines[i].fg     = ws->xft_foreground;
+            lines[i].fg2    = lines[i].fg;
             lines[i].bg     = ws->background;
             lines[i].type   = LABEL;
             lines[i].align  = RIGHT;
@@ -1534,6 +1667,7 @@ window_draw (window_state *ws)
       lines[i].text  = _("Settings");
       lines[i].font  = ws->button_font;
       lines[i].fg    = ws->xft_button_foreground;
+      lines[i].fg2   = ws->xft_button_disabled;
       lines[i].bg    = ws->button_background;
       lines[i].type  = BUTTON;
       lines[i].align = LEFT;
@@ -1541,9 +1675,14 @@ window_draw (window_state *ws)
       lines[i].button = &ws->demo_button_state;
       i++;
 
+      if (ws->splash_p > 1)
+        /* Settings button is disabled with --splash --splash */
+        ws->demo_button_state.disabled_p = True;
+
       lines[i].text  = _("Help");
       lines[i].font  = ws->button_font;
       lines[i].fg    = ws->xft_button_foreground;
+      lines[i].fg2   = ws->xft_button_disabled;
       lines[i].bg    = ws->button_background;
       lines[i].type  = BUTTON;
       lines[i].align = RIGHT;
@@ -1557,6 +1696,7 @@ window_draw (window_state *ws)
           lines[i].text  = _("New Login");
           lines[i].font  = ws->button_font;
           lines[i].fg    = ws->xft_button_foreground;
+          lines[i].fg2   = ws->xft_button_disabled;
           lines[i].bg    = ws->button_background;
           lines[i].type  = BUTTON;
           lines[i].align = LEFT;
@@ -1568,6 +1708,7 @@ window_draw (window_state *ws)
       lines[i].text  = _("OK");
       lines[i].font  = ws->button_font;
       lines[i].fg    = ws->xft_button_foreground;
+      lines[i].fg2   = ws->xft_button_disabled;
       lines[i].bg    = ws->button_background;
       lines[i].type  = BUTTON;
       lines[i].align = RIGHT;
@@ -1772,6 +1913,11 @@ destroy_window (window_state *ws)
       XtRemoveTimeOut (ws->cursor_timer);
       ws->cursor_timer = 0;
     }
+  if (ws->bs_timer)
+    {
+      XtRemoveTimeOut (ws->bs_timer);
+      ws->bs_timer = 0;
+    }
 
   while (XCheckMaskEvent (ws->dpy, PointerMotionMask, &event))
     if (verbose_p)
@@ -1932,6 +2078,7 @@ persistent_auth_status_failure (window_state *ws,
 }
 
 
+static void bs_timer (XtPointer, XtIntervalId *);
 
 static void
 handle_keypress (window_state *ws, XKeyEvent *event)
@@ -1997,6 +2144,15 @@ handle_keypress (window_state *ws, XKeyEvent *event)
                   }
                 ws->plaintext_passwd_char_size[nchars-1] = 0;
               }
+
+            /* The XInput2 extension does not send auto-repeat KeyPress
+               events, and it annoys people that you can't hold down the
+               Backspace key to clear the line.  So clear the whole line
+               if the key is held down for a little while.  */
+            if (ws->bs_timer)
+              XtRemoveTimeOut (ws->bs_timer);
+            ws->bs_timer =
+              XtAppAddTimeOut (ws->app, 1000 * 0.6, bs_timer, (XtPointer) ws);
           }
           break;
 
@@ -2008,7 +2164,7 @@ handle_keypress (window_state *ws, XKeyEvent *event)
           ws->auth_state = AUTH_CANCEL;
           break;
 
-        case '\025': case '\030':			/* Erase line */
+        case '\025': case '\030':			/* Erase line ^U ^X */
           memset (ws->plaintext_passwd, 0, sizeof (ws->plaintext_passwd));
           memset (ws->plaintext_passwd_char_size, 0, 
                   sizeof (ws->plaintext_passwd_char_size));
@@ -2109,6 +2265,14 @@ handle_event (window_state *ws, XEvent *xev)
     refresh_p = True;
     break;
 
+  case KeyRelease:
+    if (ws->bs_timer)
+      {
+        XtRemoveTimeOut (ws->bs_timer);
+        ws->bs_timer = 0;
+      }
+    break;
+
   case ButtonPress:
   case ButtonRelease:
     {
@@ -2138,6 +2302,23 @@ cursor_timer (XtPointer closure, XtIntervalId *id)
   ws->cursor_timer =
     XtAppAddTimeOut (ws->app, timeout, cursor_timer, (XtPointer) ws);
   ws->i_beam = !ws->i_beam;
+}
+
+
+/* Auto-repeat Backspace, since XInput2 doesn't do autorepeat. */
+static void
+bs_timer (XtPointer closure, XtIntervalId *id)
+{
+  window_state *ws = (window_state *) closure;
+  if (ws->bs_timer)
+    XtRemoveTimeOut (ws->bs_timer);
+  ws->bs_timer = 0;
+  /* Erase line */
+  memset (ws->plaintext_passwd, 0, sizeof (ws->plaintext_passwd));
+  memset (ws->plaintext_passwd_char_size, 0, 
+          sizeof (ws->plaintext_passwd_char_size));
+  memset (ws->censored_passwd, 0, sizeof(ws->censored_passwd));
+  window_draw (ws);
 }
 
 
@@ -2550,10 +2731,10 @@ xscreensaver_auth_finished (void *closure, Bool authenticated_p)
 
 
 void
-xscreensaver_splash (void *closure)
+xscreensaver_splash (void *closure, Bool disable_settings_p)
 {
   Widget root_widget = (Widget) closure;
-  window_state *ws = window_init (root_widget, True);
+  window_state *ws = window_init (root_widget, disable_settings_p ? 2 : 1);
   ws->auth_state = AUTH_READ;
   gui_main_loop (ws, True, False);
   destroy_window (ws);

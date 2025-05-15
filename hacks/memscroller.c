@@ -1,4 +1,4 @@
-/* xscreensaver, Copyright © 2002-2021 Jamie Zawinski <jwz@jwz.org>
+/* xscreensaver, Copyright © 2002-2023 Jamie Zawinski <jwz@jwz.org>
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that
@@ -85,7 +85,8 @@ memscroller_init (Display *dpy, Window window)
   }
 
   st->border = get_integer_resource (dpy, "borderSize", "BorderSize");
-  if (st->xgwa.width > 2560) st->border *= 2;  /* Retina displays */
+  if (st->xgwa.width > 2560 || st->xgwa.height > 2560)
+    st->border *= 2;  /* Retina displays */
 
   {
     int i;
@@ -179,7 +180,8 @@ memscroller_init (Display *dpy, Window window)
       sc->which = i;
       sc->speed = i+1;
 
-      if (st->xgwa.width > 2560) sc->speed *= 2.5;  /* Retina displays */
+      if (st->xgwa.width > 2560 || st->xgwa.height > 2560)
+        sc->speed *= 2.5;  /* Retina displays */
 
       sc->image = create_xshm_image (st->dpy, st->xgwa.visual,
                                      st->xgwa.depth,
@@ -214,7 +216,8 @@ reshape_memscroller (state *st)
         {
           sc->rez = 6;  /* #### */
 
-          if (st->xgwa.width > 2560) sc->rez *= 2.5;  /* Retina displays */
+          if (st->xgwa.width > 2560 || st->xgwa.height > 2560)
+            sc->rez *= 2.5;  /* Retina displays */
 
           sc->rect.width  = (((int) (st->xgwa.width * 0.8)
                               / sc->rez) * sc->rez);
@@ -596,12 +599,12 @@ static const char *memscroller_defaults [] = {
   ".foreground:		   #00FF00",
   "*borderSize:		   2",
 
-  ".font1:	OCR A Std 192, Lucida Console 192, Monaco 192, Courier 192",
-  ".font2:	OCR A Std 144, Lucida Console 144, Monaco 144, Courier 144",
-  ".font3:	OCR A Std 128, Lucida Console 128, Monaco 128, Courier 128",
-  ".font4:	OCR A Std 96,  Lucida Console 96,  Monaco 96,  Courier 96",
-  ".font5:	OCR A Std 48,  Lucida Console 48,  Monaco 48,  Courier 48",
-  ".font6:	OCR A Std 24,  Lucida Console 24,  Monaco 24,  Courier 24",
+  ".font1: OCR A 192, OCR A Std 192,Lucida Console 192,Monaco 192,Courier 192",
+  ".font2: OCR A 144, OCR A Std 144,Lucida Console 144,Monaco 144,Courier 144",
+  ".font3: OCR A 128, OCR A Std 128,Lucida Console 128,Monaco 128,Courier 128",
+  ".font4: OCR A 96,  OCR A Std 96, Lucida Console 96, Monaco 96, Courier 96",
+  ".font5: OCR A 48,  OCR A Std 48, Lucida Console 48, Monaco 48, Courier 48",
+  ".font6: OCR A 24,  OCR A Std 24, Lucida Console 24, Monaco 24, Courier 24",
 
   "*delay:		   10000",
   "*offset:		   0",

@@ -1,5 +1,5 @@
 /* xlock-gl.c --- xscreensaver compatibility layer for xlockmore GL modules.
- * xscreensaver, Copyright (c) 1997-2021 Jamie Zawinski <jwz@jwz.org>
+ * xscreensaver, Copyright © 1997-2024 Jamie Zawinski <jwz@jwz.org>
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that
@@ -47,6 +47,20 @@ BadValue_ehandler (Display *dpy, XErrorEvent *error)
     return orig_ehandler (dpy, error);
 }
 #endif /* !HAVE_EGL */
+
+
+#undef glEnable
+void (* glEnable_fn) (GLuint) = glEnable;
+
+#if defined(__linux__) && (defined(__arm__) || defined(__ARM_ARCH))
+# define PI_LIKE  /* Raspberry Pi-adjacent */
+static void
+glEnable_bad_line_smooth (GLuint cap)
+{
+  if (cap != GL_LINE_SMOOTH)
+    glEnable (cap);
+}
+#endif
 
 
 GLXContext *
@@ -125,9 +139,12 @@ init_GL(ModeInfo * mi)
     get_egl_config (dpy, d->egl_display, vid, &d->egl_config);
     if (!d->egl_config)
       {
+        /* get_egl_config already printed this:
         fprintf (stderr, "%s: no matching EGL config for X11 visual 0x%lx\n",
-                 progname, vi_out->visualid);
-        abort();
+                 progname, vi_out->visualid); */
+        /* returning 0 might be reasonable, but makes all the GL hacks
+           simply draw nothing in a loop. */
+        exit (1);
       }
 
     d->egl_surface = eglCreatePlatformWindowSurface (d->egl_display,
@@ -256,6 +273,18 @@ init_GL(ModeInfo * mi)
   }
 
   glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+   /* Sep 2022, Sep 2023: The Raspberry Pi 4b Broadcom driver doesn't do
+      GL_LINE_SMOOTH properly: lines show up as barely-visible static noise.
+      If we're on ARM, check the GL vendor and maybe disable GL_LINE_SMOOTH.
+    */
+# ifdef PI_LIKE
+  {
+    const char *s = (const char *) glGetString (GL_VENDOR);
+    if (s && !strcmp (s, "Broadcom"))
+      glEnable_fn = glEnable_bad_line_smooth;
+  }
+# endif
 
   /* GLXContext is already a pointer type.
      Why this function returns a pointer to a pointer, I have no idea...

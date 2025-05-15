@@ -11,7 +11,6 @@ EXTERNALS="\
  electricsheep \
  fireflies \
  goban \
- rdbomb \
  xaos \
  xdaliclock \
  xmountains \
@@ -26,6 +25,9 @@ RETIRED="\
  flag \
  forest \
  glforestfire \
+ hyperball \
+ hypercube \
+ juggle \
  lmorph \
  laser \
  lightning \
@@ -36,6 +38,7 @@ RETIRED="\
  sphere \
  spiral \
  t3d \
+ thornbird \
  testx11 \
  vines \
  whirlygig \

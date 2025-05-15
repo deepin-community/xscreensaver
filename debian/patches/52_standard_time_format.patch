@@ -1,6 +1,7 @@
-#
-# Use standard (ISO) date and time format
-#
+Description: Use standard (ISO) date and time format
+Forwarded: not-needed
+Author: Tormod Volden <debian.tormod@gmail.com>
+
 Index: xscreensaver-git/driver/XScreenSaver.ad.in
 ===================================================================
 --- xscreensaver-git.orig/driver/XScreenSaver.ad.in

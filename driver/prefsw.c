@@ -1,5 +1,5 @@
 /* prefs.c --- reading and writing the ~/.xscreensaver file.
- * xscreensaver, Copyright © 1998-2021 Jamie Zawinski <jwz@jwz.org>
+ * xscreensaver, Copyright © 1998-2023 Jamie Zawinski <jwz@jwz.org>
  *
  * Permission to use, copy, modify, distribute, and sell this software and its
  * documentation for any purpose is hereby granted without fee, provided that
@@ -80,22 +80,6 @@ chase_symlinks (const char *file)
 }
 
 
-static Bool
-i_am_a_nobody (uid_t uid)
-{
-  struct passwd *p;
-
-  p = getpwnam ("nobody");
-  if (! p) p = getpwnam ("noaccess");
-  if (! p) p = getpwnam ("daemon");
-
-  if (! p) /* There is no nobody? */
-    return False;
-
-  return (uid == p->pw_uid);
-}
-
-
 const char *
 init_file_name (void)
 {
@@ -103,32 +87,7 @@ init_file_name (void)
 
   if (!file)
     {
-      uid_t uid = getuid ();
       const char *home = getenv("HOME");
-
-      if (i_am_a_nobody (uid) || !home || !*home)
-	{
-	  /* If we're running as nobody, then use root's .xscreensaver file
-	     (since ~root/.xscreensaver and ~nobody/.xscreensaver are likely
-	     to be different -- without this, xscreensaver-settings would
-	     appear to have no effect when the luser is running as root.)
-	   */
-          struct passwd *p = getpwuid (uid);
-	  if (!p || !p->pw_name || !*p->pw_name)
-	    {
-	      fprintf (stderr, "%s: couldn't get user info of uid %d\n",
-		       blurb(), getuid ());
-	    }
-	  else if (!p->pw_dir || !*p->pw_dir)
-	    {
-	      fprintf (stderr, "%s: couldn't get home directory of \"%s\"\n",
-		       blurb(), (p->pw_name ? p->pw_name : "???"));
-	    }
-	  else
-	    {
-	      home = p->pw_dir;
-	    }
-	}
       if (home && *home)
 	{
 	  const char *name = ".xscreensaver";
@@ -155,31 +114,28 @@ static const char *
 init_file_tmp_name (void)
 {
   static char *file = 0;
-  if (!file)
+  const char *name = init_file_name();
+  char *n2 = chase_symlinks (name);
+  if (n2) name = n2;
+
+  if (file) free (file);
+
+  if (!name || !*name)
+    file = 0;
+  else
     {
-      const char *name = init_file_name();
-      const char *suffix = ".tmp";
-
-      char *n2 = chase_symlinks (name);
-      if (n2) name = n2;
-
-      if (!name || !*name)
-	file = "";
-      else
-	{
-	  file = (char *) malloc(strlen(name) + strlen(suffix) + 2);
-	  strcpy(file, name);
-	  strcat(file, suffix);
-	}
-
-      if (n2) free (n2);
+      file = (char *) malloc(strlen(name) + 20);
+      sprintf (file, "%s.%08lX", name, (random() % 0xFFFFFFFF));
     }
+
+  if (n2) free (n2);
 
   if (file && *file)
     return file;
   else
     return 0;
 }
+
 
 static const char * const prefs[] = {
   "timeout",
@@ -226,6 +182,7 @@ static const char * const prefs[] = {
   "textProgram",
   "textURL",
   "dialogTheme",
+  "settingsGeom",
   "",
   "programs",
   "",
@@ -293,7 +250,7 @@ static void line_handler (int lineno,
 {
   struct parser_closure *c = (struct parser_closure *) closure;
   saver_preferences *p = c->prefs;
-  if (!p->db) abort();
+  if (!p->db) return;  /* Not X11, Wayland */
   handle_entry (&p->db, key, val, c->file, lineno);
 }
 
@@ -506,8 +463,6 @@ write_init_file (Display *dpy,
    */
   char *visual_name;
   char *programs;
-  Bool overlay_stderr_p;
-  char *stderr_font;
   FILE *out;
 
   if (!name) goto END;
@@ -535,18 +490,13 @@ write_init_file (Display *dpy,
 
   /* Give the new .xscreensaver file the same permissions as the old one;
      except ensure that it is readable and writable by owner, and not
-     executable.  Extra hack: if we're running as root, make the file
-     be world-readable (so that the daemon, running as "nobody", will
-     still be able to read it.)
+     executable.
    */
   if (stat(name, &st) == 0)
     {
       mode_t mode = st.st_mode;
       mode |= S_IRUSR | S_IWUSR;		/* read/write by user */
       mode &= ~(S_IXUSR | S_IXGRP | S_IXOTH);	/* executable by none */
-
-      if (getuid() == (uid_t) 0)		/* read by group/other */
-        mode |= S_IRGRP | S_IROTH;
 
       if (fchmod (fileno(out), mode) != 0)
 	{
@@ -559,11 +509,9 @@ write_init_file (Display *dpy,
 	}
     }
 
-  /* Kludge, since these aren't in the saver_preferences struct... */
+  /* Kludge, since this isn't in the saver_preferences struct... */
   visual_name = get_string_resource (dpy, "visualID", "VisualID");
   programs = 0;
-  overlay_stderr_p = get_boolean_resource (dpy, "overlayStderr", "Boolean");
-  stderr_font = get_string_resource (dpy, "font", "Font");
 
   i = 0;
   {
@@ -646,6 +594,7 @@ write_init_file (Display *dpy,
       CHECK("loadURL")		continue;  /* don't save */
       CHECK("newLoginCommand")	continue;  /* don't save */
       CHECK("dialogTheme")      type = pref_str,  s = p->dialog_theme;
+      CHECK("settingsGeom")     type = pref_str,  s = p->settings_geom;
       CHECK("nice")		type = pref_int,  i = p->nice_inferior;
       CHECK("memoryLimit")	continue;  /* don't save */
       CHECK("fade")		type = pref_bool, b = p->fade_p;
@@ -656,8 +605,6 @@ write_init_file (Display *dpy,
       CHECK("logFile")		continue;  /* don't save */
       CHECK("ignoreUninstalledPrograms")
                                 type = pref_bool, b = p->ignore_uninstalled_p;
-
-      CHECK("font")		type = pref_str,  s =    stderr_font;
 
       CHECK("dpmsEnabled")	type = pref_bool, b = p->dpms_enabled_p;
       CHECK("dpmsQuickOff")	type = pref_bool, b = p->dpms_quickoff_p;
@@ -692,7 +639,8 @@ write_init_file (Display *dpy,
 
       CHECK("programs")		type = pref_str,  s =    programs;
       CHECK("pointerHysteresis")type = pref_int,  i = p->pointer_hysteresis;
-      CHECK("overlayStderr")	type = pref_bool, b = overlay_stderr_p;
+      CHECK("font")		     continue;  /* don't save */
+      CHECK("overlayStderr")	     continue;  /* don't save */
       CHECK("overlayTextBackground") continue;  /* don't save */
       CHECK("overlayTextForeground") continue;  /* don't save */
       CHECK("bourneShell")	     continue;  /* don't save */
@@ -759,7 +707,6 @@ write_init_file (Display *dpy,
   fprintf(out, "\n");
 
   if (visual_name) free(visual_name);
-  if (stderr_font) free(stderr_font);
   if (programs) free(programs);
 
   if (fclose(out) == 0)
@@ -889,9 +836,6 @@ load_init_file (Display *dpy, saver_preferences *p)
   p->install_cmap_p = get_boolean_resource (dpy, "installColormap", "Boolean");
   p->nice_inferior  = get_integer_resource (dpy, "nice", "Nice");
   p->splash_p       = get_boolean_resource (dpy, "splash", "Boolean");
-# ifdef QUAD_MODE
-  p->quad_p         = get_boolean_resource (dpy, "quad", "Boolean");
-# endif
   p->ignore_uninstalled_p = get_boolean_resource (dpy, 
                                                   "ignoreUninstalledPrograms",
                                                   "Boolean");
@@ -929,6 +873,7 @@ load_init_file (Display *dpy, saver_preferences *p)
   p->new_login_command = get_string_resource(dpy, "newLoginCommand",
                                              "Command");
   p->dialog_theme = get_string_resource(dpy, "dialogTheme", "String");
+  p->settings_geom = get_string_resource(dpy, "settingsGeom", "String");
   p->auth_warning_slack = get_integer_resource(dpy, "authWarningSlack",
                                                "Integer");
 
@@ -1138,7 +1083,7 @@ format_command (const char *cmd, Bool wrap_p)
 {
   int tab = 30;
   int col = tab;
-  char *cmd2 = (char *) calloc (1, 2 * (strlen (cmd) + 1));
+  char *cmd2 = (char *) calloc (1, 2 * (strlen (cmd) + 10));
   const char *in = cmd;
   char *out = cmd2;
   while (*in)
@@ -1174,6 +1119,14 @@ format_command (const char *cmd, Bool wrap_p)
   /* Strip trailing whitespace */
   while (out > cmd2 && isspace (out[-1]))
     *(--out) = 0;
+
+  /* In version 6.05, the defaults were changed from "-root" to "--root".
+     If anything in .xscreensaver still ends with "-root", silently change
+     it, so that the "Reset to Defaults" button is enabled/disabled as
+     appropriate, and doesn't think the command differs from the default.
+   */
+  if (out > cmd2+7 && !strcmp (out-6, " -root"))
+    strcpy (out-6, " --root");  /* malloc had enough slack */
 
   return cmd2;
 }
@@ -1387,36 +1340,29 @@ stop_the_insanity (saver_preferences *p)
     p->fade_p = False;
   if (! p->fade_p) p->unfade_p = False;
 
-  /* The DPMS settings may have the value 0.
-     But if they are negative, or are a range less than 10 seconds,
-     reset them to sensible defaults.  (Since that must be a mistake.)
-   */
-  if (p->dpms_standby != 0 &&
-      p->dpms_standby < 10 * 1000)
-    p->dpms_standby =  2 * 60 * 60 * 1000;			 /* 2 hours */
-  if (p->dpms_suspend != 0 &&
-      p->dpms_suspend < 10 * 1000)
-    p->dpms_suspend =  2 * 60 * 60 * 1000;			 /* 2 hours */
-  if (p->dpms_off != 0 &&
-      p->dpms_off < 10 * 1000)
-    p->dpms_off      = 4 * 60 * 60 * 1000;			 /* 4 hours */
+  /* DPMS settings may be zero, but otherwise, if they < 10 sec or negative,
+     set them to 2 minutes. */
+# define THROTTLE(FIELD) \
+    if (p->FIELD != 0 && ((long) p->FIELD) < 10 * 1000) \
+      p->FIELD = 2 * 60 * 60 * 1000
+  THROTTLE (dpms_standby);
+  THROTTLE (dpms_suspend);
+  THROTTLE (dpms_off);
+# undef THROTTLE
 
-  /* suspend may not be greater than off, unless off is 0.
-     standby may not be greater than suspend, unless suspend is 0.
+  /* If the DPMS settings are non-zero, they must not go backwards:
+     standby >= timeout (screen saver activation)
+     suspend >= standby
+     off     >= suspend
    */
-  if (p->dpms_off != 0 &&
-      p->dpms_suspend > p->dpms_off)
-    p->dpms_suspend = p->dpms_off;
-  if (p->dpms_suspend != 0 &&
-      p->dpms_standby > p->dpms_suspend)
-    p->dpms_standby = p->dpms_suspend;
-
-  /* These fixes above ignores the case
-     suspend = 0 and standby > off ...
-   */
-  if (p->dpms_off != 0 &&
-      p->dpms_standby > p->dpms_off)
-    p->dpms_standby = p->dpms_off;
+# define THROTTLE(FIELD,LOWER) \
+    if (p->FIELD != 0 && ((long) p->FIELD) < ((long) p->LOWER)) \
+      p->FIELD = p->LOWER
+  THROTTLE (dpms_standby, timeout);
+  THROTTLE (dpms_suspend, dpms_standby);
+  THROTTLE (dpms_off,     dpms_standby);
+  THROTTLE (dpms_off,     dpms_suspend);
+#undef THROTTLE
 
   if (p->dpms_standby == 0 &&	   /* if *all* are 0, then DPMS is disabled */
       p->dpms_suspend == 0 &&
@@ -1436,120 +1382,4 @@ stop_the_insanity (saver_preferences *p)
 
   if (p->auth_warning_slack < 0)   p->auth_warning_slack = 0;
   if (p->auth_warning_slack > 300) p->auth_warning_slack = 300;
-}
-
-
-Bool
-senescent_p (void)
-{
-  /* If you are in here because you're planning on disabling this warning
-     before redistributing my software, please don't.
-
-     I sincerely request that you do one of the following:
-
-         1: leave this code intact and this warning in place, -OR-
-
-         2: Remove xscreensaver from your distribution.
-
-     I would seriously prefer that you not distribute my software at all
-     than that you distribute one version and then never update it for
-     years.
-
-     I am *constantly* getting email from users reporting bugs that have
-     been fixed for literally years who have no idea that the software
-     they are running is years out of date.  Yes, it would be great if we
-     lived in the ideal world where people checked that they were running
-     the latest release before they report a bug, but we don't.  To most
-     people, "running the latest release" is synonymous with "running the
-     latest release that my distro packages for me."
-
-     When they even bother to tell me what version they're running, I
-     say, "That version is three years old!", and they say "But this is
-     the latest version my distro ships".  Then I say, "your distro
-     sucks", and they say "but I don't know how to compile from source,
-     herp derp I eat paste", and *everybody* goes away unhappy.
-
-     It wastes an enormous amount of my time, but worse than that, it
-     does a grave disservice to the users, who are stuck experiencing
-     bugs that are already fixed!  These users think they are running the
-     latest release, and they are not.  They would like to be running the
-     actual latest release, but they don't know how, because their distro
-     makes that very difficult for them.  It's terrible for everyone, and
-     kind of makes me regret ever having released this software in the
-     first place.
-
-     So seriously. I ask that if you're planning on disabling this
-     obsolescence warning, that you instead just remove xscreensaver from
-     your distro entirely.  Everybody will be happier that way.  Check
-     out gnome-screensaver instead, I understand it's really nice.
-
-     Of course, my license allows you to ignore me and do whatever the
-     fuck you want, but as the author, I hope you will have the common
-     courtesy of complying with my request.
-
-     Thank you!
-
-     jwz, 2014, 2016, 2018, 2021.
-
-     PS: In particular, since Debian refuses to upgrade software on any
-     kind of rational timeline, I have asked that they stop shipping
-     xscreensaver at all.  They have refused.  Instead of upgrading the
-     software, they simply patched out this warning.
-
-     If you want to witness the sad state of the open source peanut
-     gallery, look no farther than the comments on my blog:
-     http://jwz.org/b/yiYo
-
-     Many of these people fall back on their go-to argument of, "If it is
-     legal, it must be right."  If you believe in that rhetorical device
-     then you are a terrible person, and possibly a sociopath.
-
-     There are also the armchair lawyers who say "Well, instead of
-     *asking* people to do the right thing out of common courtesy, you
-     should just change your license to prohibit them from acting
-     amorally."  Again, this is the answer of a sociopath, but that aside,
-     if you devote even a second's thought to this you will realize that
-     the end result of this would be for distros like Debian to just keep
-     shipping the last version with the old license and then never
-     upgrading it again -- which would be the worst possible outcome for
-     everyone involved, most especially the users.
-
-     Also, some have incorrectly characterized this as a "time bomb".
-     It is a software update notification, nothing more.  A "time bomb"
-     makes software stop working.  This merely alerts the user that the
-     security-critical software that they are running is dangerously out
-     of date.
-  */
-
-  time_t now = time ((time_t *) 0);				/*   d   */
-  struct tm *tm = localtime (&now);				/*   o   */
-  const char *s = screensaver_id;				/*   n   */
-  char mon[4], year[5];						/*   '   */
-  int m, y, mrnths;						/*   t   */
-  s = strchr (s, ' '); if (!s) abort(); s++;			/*       */
-  s = strchr (s, '('); if (!s) abort(); s++;			/*   d   */
-  s = strchr (s, '-'); if (!s) abort(); s++;			/*   o   */
-  strncpy (mon, s, 3);						/*   o   */
-  mon[3] = 0;							/*       */
-  s = strchr (s, '-'); if (!s) abort(); s++;			/*   e   */
-  strncpy (year, s, 4);						/*   e   */
-  year[4] = 0;							/*   t   */
-  y = atoi (year);						/*   ,   */
-  if      (!strcmp(mon, "Jan")) m = 0;				/*       */
-  else if (!strcmp(mon, "Feb")) m = 1;				/*   s   */
-  else if (!strcmp(mon, "Mar")) m = 2;				/*   t   */
-  else if (!strcmp(mon, "Apr")) m = 3;				/*   o   */
-  else if (!strcmp(mon, "May")) m = 4;				/*   p   */
-  else if (!strcmp(mon, "Jun")) m = 5;				/*   ,   */
-  else if (!strcmp(mon, "Jul")) m = 6;				/*       */
-  else if (!strcmp(mon, "Aug")) m = 7;				/*   s   */
-  else if (!strcmp(mon, "Sep")) m = 8;				/*   t   */
-  else if (!strcmp(mon, "Oct")) m = 9;				/*   a   */
-  else if (!strcmp(mon, "Nov")) m = 10;				/*   a   */
-  else if (!strcmp(mon, "Dec")) m = 11;				/*   a   */
-  else abort();							/*   h   */
-  mrnths = ((((tm->tm_year + 1900) * 12) + tm->tm_mon) -	/*   h   */
-            (y * 12 + m));					/*   h   */
-							  	/*   p   */
-  return (mrnths >= 17);					/*   .   */
 }

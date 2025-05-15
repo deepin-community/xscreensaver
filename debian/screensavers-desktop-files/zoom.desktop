@@ -1,6 +1,6 @@
 
 [Desktop Entry]
 Name=Zoom
-Exec=/usr/libexec/xscreensaver/zoom -root
+Exec=/usr/libexec/xscreensaver/zoom --root
 TryExec=/usr/libexec/xscreensaver/zoom
-Comment=Fatbits! Zooms in on a part of the screen and then moves around. With the "Lenses" option, the result is like looking through many overlapping lenses rather than just a simple zoom. Written by James Macnicol.
+Comment=Fatbits! Zooms in on a part of an image and scrolls, distorting each pixel with its own lens. Written by James Macnicol.
